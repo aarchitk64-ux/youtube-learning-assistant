@@ -1,0 +1,210 @@
+import streamlit as st
+from youtube_transcript_api import YouTubeTranscriptApi
+from groq import Groq
+from dotenv import load_dotenv
+from fpdf import FPDF
+import os
+import re
+
+# ==========================================
+# LOAD ENV
+# ==========================================
+
+load_dotenv()
+
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+client = None
+
+if GROQ_API_KEY:
+    client = Groq(api_key=GROQ_API_KEY)
+
+# ==========================================
+# PAGE CONFIG
+# ==========================================
+
+st.set_page_config(
+    page_title="YouTube Learning Assistant",
+    page_icon="🎓",
+    layout="wide"
+)
+
+st.title("🎓 YouTube Learning Assistant")
+st.caption(
+    "Turn YouTube videos into summaries, quizzes, flashcards, and PDFs."
+)
+
+# ==========================================
+# VIDEO ID EXTRACTION
+# ==========================================
+
+def extract_video_id(url):
+    patterns = [
+        r"v=([a-zA-Z0-9_-]{11})",
+        r"youtu\.be/([a-zA-Z0-9_-]{11})"
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, url)
+
+        if match:
+            return match.group(1)
+
+    return None
+
+# ==========================================
+# PDF GENERATOR
+# ==========================================
+
+def create_pdf(content):
+
+    pdf = FPDF()
+    pdf.add_page()
+
+    pdf.set_font("Arial", size=11)
+
+    lines = content.split("\n")
+
+    for line in lines:
+        try:
+            pdf.multi_cell(0, 8, line)
+        except:
+            pass
+
+    pdf_path = "youtube_study_notes.pdf"
+    pdf.output(pdf_path)
+
+    return pdf_path
+
+# ==========================================
+# INPUT
+# ==========================================
+
+url = st.text_input("Paste YouTube URL")
+
+# ==========================================
+# ANALYZE
+# ==========================================
+
+if st.button("Analyze Video"):
+
+    video_id = extract_video_id(url)
+
+    if not video_id:
+        st.error("Invalid YouTube URL")
+
+    else:
+
+        try:
+
+            # ----------------------------
+            # FETCH TRANSCRIPT
+            # ----------------------------
+
+            api = YouTubeTranscriptApi()
+
+            transcript = api.fetch(video_id)
+
+            transcript_text = " ".join(
+                [snippet.text for snippet in transcript]
+            )
+
+            st.success("Transcript Loaded Successfully")
+
+            # ----------------------------
+            # AI GENERATION
+            # ----------------------------
+
+            if client is None:
+
+                st.error(
+                    "Groq API key not found. Check your .env file."
+                )
+
+            else:
+
+                with st.spinner(
+                    "Generating Study Material..."
+                ):
+
+                    prompt = f"""
+You are an expert study assistant.
+
+Based on the transcript below, generate:
+
+# SUMMARY
+A concise summary.
+
+# KEY TAKEAWAYS
+5 important bullet points.
+
+# QUIZ
+5 multiple-choice questions with answers.
+
+# FLASHCARDS
+10 flashcards using:
+
+Q: Question
+A: Answer
+
+Transcript:
+
+{transcript_text}
+"""
+
+                    completion = client.chat.completions.create(
+                        model="llama-3.3-70b-versatile",
+                        messages=[
+                            {
+                                "role": "user",
+                                "content": prompt
+                            }
+                        ],
+                        temperature=0.4,
+                    )
+
+                    study_material = (
+                        completion.choices[0]
+                        .message.content
+                    )
+
+                st.subheader("📚 Study Material")
+
+                st.markdown(study_material)
+
+                # ----------------------------
+                # PDF EXPORT
+                # ----------------------------
+
+                pdf_file = create_pdf(
+                    study_material
+                )
+
+                with open(pdf_file, "rb") as file:
+
+                    st.download_button(
+                        label="📥 Download PDF Notes",
+                        data=file,
+                        file_name="youtube_study_notes.pdf",
+                        mime="application/pdf"
+                    )
+
+            # ----------------------------
+            # TRANSCRIPT
+            # ----------------------------
+
+            with st.expander(
+                "📜 View Full Transcript"
+            ):
+
+                st.text_area(
+                    "Transcript",
+                    transcript_text,
+                    height=400
+                )
+
+        except Exception as e:
+
+            st.error(
+                f"Error: {str(e)}"
+            )
