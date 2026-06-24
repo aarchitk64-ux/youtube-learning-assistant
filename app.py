@@ -29,10 +29,21 @@ st.set_page_config(
     layout="wide"
 )
 
+# ==========================================
+# HEADER
+# ==========================================
+
 st.title("🎓 YouTube Learning Assistant")
-st.caption(
-    "Turn YouTube videos into summaries, quizzes, flashcards, and PDFs."
-)
+
+st.markdown("""
+Turn any YouTube video into:
+
+✅ Smart Notes  
+✅ Key Takeaways  
+✅ Quiz Questions  
+✅ Flashcards  
+✅ PDF Study Material
+""")
 
 # ==========================================
 # VIDEO ID EXTRACTION
@@ -61,15 +72,38 @@ def create_pdf(content):
     pdf = FPDF()
     pdf.add_page()
 
+    pdf.set_auto_page_break(auto=True, margin=15)
     pdf.set_font("Arial", size=11)
 
-    lines = content.split("\n")
+    content = content.replace("•", "-")
+    content = content.replace("—", "-")
+    content = content.replace("–", "-")
+    content = content.replace("✓", "[OK]")
 
-    for line in lines:
-        try:
-            pdf.multi_cell(0, 8, line)
-        except:
-            pass
+    safe_content = (
+        content.encode("latin-1", "replace")
+        .decode("latin-1")
+    )
+
+    for line in safe_content.split("\n"):
+
+        line = line.strip()
+
+        if not line:
+            pdf.ln(4)
+            continue
+
+        if len(line) > 100:
+            chunks = [
+                line[i:i+100]
+                for i in range(0, len(line), 100)
+            ]
+
+            for chunk in chunks:
+                pdf.multi_cell(190, 8, chunk)
+
+        else:
+            pdf.multi_cell(190, 8, line)
 
     pdf_path = "youtube_study_notes.pdf"
     pdf.output(pdf_path)
@@ -86,7 +120,7 @@ url = st.text_input("Paste YouTube URL")
 # ANALYZE
 # ==========================================
 
-if st.button("Analyze Video"):
+if st.button("🚀 Analyze Video", use_container_width=True):
 
     video_id = extract_video_id(url)
 
@@ -101,13 +135,15 @@ if st.button("Analyze Video"):
             # FETCH TRANSCRIPT
             # ----------------------------
 
-            api = YouTubeTranscriptApi()
+            with st.spinner("Loading transcript..."):
 
-            transcript = api.fetch(video_id)
+                api = YouTubeTranscriptApi()
 
-            transcript_text = " ".join(
-                [snippet.text for snippet in transcript]
-            )
+                transcript = api.fetch(video_id)
+
+                transcript_text = " ".join(
+                    [snippet.text for snippet in transcript]
+                )
 
             st.success("Transcript Loaded Successfully")
 
@@ -118,7 +154,7 @@ if st.button("Analyze Video"):
             if client is None:
 
                 st.error(
-                    "Groq API key not found. Check your .env file."
+                    "Groq API key not found."
                 )
 
             else:
@@ -168,6 +204,12 @@ Transcript:
                         .message.content
                     )
 
+                # ----------------------------
+                # RESULTS
+                # ----------------------------
+
+                st.markdown("---")
+
                 st.subheader("📚 Study Material")
 
                 st.markdown(study_material)
@@ -184,7 +226,7 @@ Transcript:
 
                     st.download_button(
                         label="📥 Download PDF Notes",
-                        data=file,
+                        data=file.read(),
                         file_name="youtube_study_notes.pdf",
                         mime="application/pdf"
                     )
